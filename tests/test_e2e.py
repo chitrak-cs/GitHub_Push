@@ -67,6 +67,12 @@ class EndToEnd(unittest.TestCase):
         self.assertIn("--add-topic c --add-topic demo", log)
         self.assertIn("github.com/tester/demo", r.stdout)
 
+    def test_non_interactive_flags(self):
+        r = self.run_cli("-n", "Cool App!", "-d", "hello world", "--private")
+        self.assertEqual(r.returncode, 0, r.stderr + r.stdout)
+        log = self.log.read_text()
+        self.assertIn("repo create Cool-App --private --description hello world", log)
+
     def test_dry_run_creates_nothing(self):
         r = self.run_cli("--dry-run")
         self.assertEqual(r.returncode, 0, r.stderr)

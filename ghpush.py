@@ -98,7 +98,7 @@ README_NAMES = {"readme.md", "readme", "readme.txt"}
 # Output helpers
 # --------------------------------------------------------------------------
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 
 _COLOR = sys.stdout.isatty() and "NO_COLOR" not in os.environ
 
@@ -549,6 +549,13 @@ def parse_args(argv=None) -> argparse.Namespace:
                    help="do everything except create the repo and push")
     p.add_argument("-y", "--yes", action="store_true",
                    help="skip confirmations and accept the defaults")
+    p.add_argument("-n", "--name", help="repository name (skips the question)")
+    p.add_argument("-d", "--description", help="repository description (skips the question)")
+    vis = p.add_mutually_exclusive_group()
+    vis.add_argument("--public", dest="visibility", action="store_const", const="public",
+                     help="make the repo public (skips the question)")
+    vis.add_argument("--private", dest="visibility", action="store_const", const="private",
+                     help="make the repo private (skips the question)")
     p.add_argument("--license", choices=sorted(LICENSES), help="add a LICENSE file")
     p.add_argument("--org", help="create the repo under this organization")
     p.add_argument("--topics", help="comma-separated topics, e.g. c,graphics")
@@ -579,9 +586,19 @@ def main(argv=None) -> int:
     info(str(folder))
 
     owner = args.org or github_login()
-    name = ask_repo_name(prompter, folder.name, owner)
-    description = prompter.ask("Description", "" if args.yes else None)
-    visibility = ask_visibility(prompter)
+    if args.name:
+        try:
+            name = sanitize_repo_name(args.name)
+        except ValueError as exc:
+            fail(str(exc))
+        if owner and repo_exists(owner, name):
+            fail(f"You already have a repository called '{name}'.")
+        ok(f"Repository name: {name}")
+    else:
+        name = ask_repo_name(prompter, folder.name, owner)
+    description = (args.description if args.description is not None
+                   else prompter.ask("Description", "" if args.yes else None))
+    visibility = args.visibility or ask_visibility(prompter)
 
     step(3, total, "Preparing files")
     language = detect_language(folder)
