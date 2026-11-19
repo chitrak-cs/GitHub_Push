@@ -71,7 +71,7 @@ class EndToEnd(unittest.TestCase):
         r = self.run_cli("--dry-run")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertNotIn("repo create", self.log.read_text())
-        self.assertIn("[dry run]", r.stdout)
+        self.assertIn("Dry run complete", r.stdout)
 
     def test_existing_remote_aborts_with_yes(self):
         subprocess.run(["git", "init", "-b", "main"], cwd=self.proj, env=self.env, capture_output=True)

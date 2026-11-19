@@ -98,19 +98,63 @@ README_NAMES = {"readme.md", "readme", "readme.txt"}
 # Output helpers
 # --------------------------------------------------------------------------
 
-_COLOR = sys.stdout.isatty()
+__version__ = "1.1.0"
+
+_COLOR = sys.stdout.isatty() and "NO_COLOR" not in os.environ
 
 
 def _paint(code: str, text: str) -> str:
     return f"\033[{code}m{text}\033[0m" if _COLOR else text
 
 
+def bold(text: str) -> str:
+    return _paint("1", text)
+
+
+def dim(text: str) -> str:
+    return _paint("2", text)
+
+
+def cyan(text: str) -> str:
+    return _paint("36", text)
+
+
 def ok(msg: str) -> None:
-    print(f"{_paint('32', '✔')} {msg}")
+    print(f"  {_paint('32', '✔')} {msg}")
 
 
 def warn(msg: str) -> None:
-    print(f"{_paint('33', '⚠')} {msg}")
+    print(f"  {_paint('33', '⚠')} {msg}")
+
+
+def info(msg: str) -> None:
+    print(f"    {dim(msg)}")
+
+
+def banner() -> None:
+    print()
+    print(f"  {bold(cyan('ghpush'))} {dim(f'v{__version__}')}  {dim('— push any folder to GitHub')}")
+    print(f"  {dim('─' * 40)}")
+
+
+def step(n: int, total: int, title: str) -> None:
+    print(f"\n{bold(cyan(f'[{n}/{total}]'))} {bold(title)}")
+
+
+def summary_box(title: str, rows: list[tuple[str, str]], warnings: list[str]) -> None:
+    """Print a bordered summary card."""
+    lines = [f"{label:<12}{value}" for label, value in rows]
+    if warnings:
+        lines.append("")
+        lines.append("Warnings")
+        lines += [f"⚠ {w}" for w in warnings]
+    width = max(len(title), *(len(l) for l in lines)) + 2
+    print(f"\n  {_paint('32', '╭' + '─' * width + '╮')}")
+    print(f"  {_paint('32', '│')} {bold(title.ljust(width - 1))}{_paint('32', '│')}")
+    print(f"  {_paint('32', '├' + '─' * width + '┤')}")
+    for l in lines:
+        print(f"  {_paint('32', '│')} {l.ljust(width - 1)}{_paint('32', '│')}")
+    print(f"  {_paint('32', '╰' + '─' * width + '╯')}\n")
 
 
 def fail(msg: str, code: int = 1) -> None:
@@ -181,9 +225,9 @@ class Prompter:
     def ask(self, prompt: str, default: str | None = None) -> str:
         if self.assume_yes and default is not None:
             return default
-        suffix = f" [{default}]" if default is not None else ""
+        suffix = f" {dim(f'[{default}]')}" if default else ""
         try:
-            answer = input(f"{prompt}{suffix}: ").strip()
+            answer = input(f"  {cyan('?')} {prompt}{suffix}: ").strip()
         except EOFError:
             answer = ""
         return answer or (default or "")
@@ -193,7 +237,7 @@ class Prompter:
             return default
         hint = "Y/n" if default else "y/N"
         try:
-            answer = input(f"{prompt} [{hint}]: ").strip().lower()
+            answer = input(f"  {cyan('?')} {prompt} {dim(f'[{hint}]')}: ").strip().lower()
         except EOFError:
             answer = ""
         return default if not answer else answer.startswith("y")
@@ -499,6 +543,7 @@ def parse_args(argv=None) -> argparse.Namespace:
         prog="ghpush",
         description="Push any folder to a new GitHub repo in one command.",
     )
+    p.add_argument("--version", action="version", version=f"ghpush {__version__}")
     p.add_argument("folder", nargs="?", help="folder to push (asked for if omitted)")
     p.add_argument("--dry-run", action="store_true",
                    help="do everything except create the repo and push")
@@ -515,22 +560,30 @@ def main(argv=None) -> int:
     args = parse_args(argv)
     prompter = Prompter(args.yes)
     warnings: list[str] = []
+    total = 5
 
+    banner()
+
+    step(1, total, "Pre-flight checks")
     check_tools()
     check_gh_auth()
     check_git_identity()
+    ok("git, gh and your identity are ready")
 
+    step(2, total, "Project details")
     raw_folder = args.folder or prompter.ask("Folder to push")
     try:
         folder = validate_folder(raw_folder)
     except ValueError as exc:
         fail(str(exc))
+    info(str(folder))
 
     owner = args.org or github_login()
     name = ask_repo_name(prompter, folder.name, owner)
     description = prompter.ask("Description", "" if args.yes else None)
     visibility = ask_visibility(prompter)
 
+    step(3, total, "Preparing files")
     language = detect_language(folder)
     if language:
         ok(f"Detected language: {language}")
@@ -542,27 +595,31 @@ def main(argv=None) -> int:
     if args.license:
         ensure_license(folder, args.license, warnings)
 
+    step(4, total, "Safety scan and commit")
     git_init(folder, prompter)
     safety_scan(folder, prompter, warnings)
-
     n_files = count_uploadable(folder)
-    if not prompter.confirm(f"About to upload {n_files} files to {visibility} repo {name}. Continue?"):
+    ok(f"{n_files} files ready to upload")
+    if not prompter.confirm(f"Upload to {visibility} repo {bold(name)}?"):
         fail("Aborted by user.")
 
     commit_all(folder)
     ok(f"Committed {count_uploadable(folder)} files")
 
+    step(5, total, "Creating repository" if not args.dry_run else "Dry run")
     target = f"{args.org}/{name}" if args.org else name
     cmd = build_create_command(target, visibility, description, folder)
     if args.dry_run:
-        print("\n[dry run] would run:\n  " + " ".join(repr(c) if " " in c else c for c in cmd))
-        for w in warnings:
-            warn(w)
+        info("would run: " + " ".join(repr(c) if " " in c else c for c in cmd))
+        summary_box("Dry run complete — nothing was created",
+                    [("Repo", f"{owner}/{name}"), ("Visibility", visibility),
+                     ("Language", language or "unknown"), ("Files", str(n_files))],
+                    warnings)
         return 0
 
     create_and_push(cmd)
     url = repo_url(owner, name)
-    ok(f"Created {url} and pushed")
+    ok("Repository created and pushed")
 
     if args.topics:
         topics = [t.strip().lower() for t in args.topics.split(",") if t.strip()]
@@ -576,9 +633,10 @@ def main(argv=None) -> int:
     if args.web:
         run(["gh", "repo", "view", f"{owner}/{name}", "--web"], check=False)
 
-    print(f"\n  Visibility: {visibility}\n  Language:   {language or 'unknown'}\n  Files:      {n_files}")
-    for w in warnings:
-        warn(w)
+    summary_box("Done! Your project is on GitHub",
+                [("URL", url), ("Visibility", visibility),
+                 ("Language", language or "unknown"), ("Files", str(n_files))],
+                warnings)
     return 0
 
 

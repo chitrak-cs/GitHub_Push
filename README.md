@@ -29,6 +29,9 @@ $ ghpush ~/projects/sorting-visualizer
 | `--org NAME` | create the repo under an organization |
 | `--topics a,b` | set GitHub topics after pushing |
 | `--web` | open the repo in the browser when done |
+| `--version` | print the version |
+
+Output is coloured on a terminal; set `NO_COLOR=1` to turn colours off.
 
 Files named `*.example`, `*.sample`, `*.template` or `*.dist` (e.g. `.env.example`) are not treated as secrets.
 
